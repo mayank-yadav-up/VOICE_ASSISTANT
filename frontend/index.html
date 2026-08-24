@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice Command Shopping Assistant</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+</head>
+<body class="bg-gray-50 text-gray-800 font-sans min-h-screen flex flex-col items-center py-10 px-4">
+
+    <div class="w-full max-w-md bg-white shadow-xl rounded-2xl p-6 border border-gray-100">
+        <h1 class="text-2xl font-bold text-center text-indigo-600 mb-2">🛒 Voice Shopping Assistant</h1>
+        <p class="text-xs text-center text-gray-500 mb-6">Tap the mic and say things like: "Add 2 bottles of milk" or "Remove apples"</p>
+
+        <!-- Voice Trigger Button -->
+        <div class="flex flex-col items-center mb-6">
+            <button id="micBtn" onclick="toggleListening()" class="w-20 h-20 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full flex items-center justify-center shadow-lg transition transform active:scale-95 cursor-pointer">
+                <svg id="micIcon" xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                </svg>
+            </button>
+            <span id="statusText" class="text-sm font-medium text-gray-600 mt-3">Tap to Speak</span>
+        </div>
+
+        <!-- Real-time Feedback Box -->
+        <div id="feedbackBox" class="hidden mb-4 p-3 bg-indigo-50 border border-indigo-100 rounded-lg text-xs text-indigo-800"></div>
+
+        <!-- Shopping List View -->
+        <h2 class="text-md font-semibold text-gray-700 mb-3 border-b pb-1">Your Shopping List</h2>
+        <div id="emptyState" class="text-sm text-gray-400 text-center py-6">Your list is empty. Start speaking!</div>
+        <ul id="shoppingList" class="space-y-2 max-h-64 overflow-y-auto pr-1"></ul>
+    </div>
+
+    <script>
+        const API_URL = 'https://voice-shopping-assistant-q9jz.onrender.com/api';
+        let isListening = false;
+        let recognition;
+
+        // Initialize Speech Recognition
+        if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            recognition = new SpeechRecognition();
+            recognition.continuous = false;
+            recognition.interimResults = false;
+            recognition.lang = 'en-US';
+
+            recognition.onstart = () => {
+                isListening = true;
+                document.getElementById('micBtn').classList.add('bg-red-500', 'animate-pulse');
+                document.getElementById('statusText').innerText = 'Listening... Speak now!';
+            };
+
+            recognition.onresult = (event) => {
+                const command = event.results[0][0].transcript;
+                showFeedback(`Heard: "${command}"`);
+                sendVoiceCommand(command);
+            };
+
+            recognition.onerror = (event) => {
+                showFeedback(`Error: ${event.error}`);
+                resetMicState();
+            };
+
+            recognition.onend = () => {
+                resetMicState();
+            };
+        } else {
+            alert("Web Speech API is not supported in this browser. Try Google Chrome.");
+        }
+
+        function toggleListening() {
+            if (!recognition) return;
+            if (isListening) {
+                recognition.stop();
+            } else {
+                recognition.start();
+            }
+        }
+
+        function resetMicState() {
+            isListening = false;
+            const btn = document.getElementById('micBtn');
+            if(btn) {
+                btn.classList.remove('bg-red-500', 'animate-pulse');
+                btn.classList.add('bg-indigo-600');
+            }
+            document.getElementById('statusText').innerText = 'Tap to Speak';
+        }
+
+        function showFeedback(text) {
+            const box = document.getElementById('feedbackBox');
+            box.innerText = text;
+            box.classList.remove('hidden');
+        }
+
+        async function sendVoiceCommand(command) {
+            try {
+                const response = await fetch(`${API_URL}/command`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ command })
+                });
+                const data = await response.json();
+                if (data.success) {
+                    if (data.suggestion) {
+                        showFeedback(data.suggestion);
+                    }
+                    renderList(data.list);
+                } else {
+                    showFeedback(data.message);
+                }
+            } catch (err) {
+                showFeedback("Failed to connect to backend server.");
+            }
+        }
+
+        async function fetchList() {
+            try {
+                const response = await fetch(`${API_URL}/list`);
+                const data = await response.json();
+                if (data.success) renderList(data.list);
+            } catch (e) {
+                console.log("Could not load initial list");
+            }
+        }
+
+        function renderList(items) {
+            const listEl = document.getElementById('shoppingList');
+            const emptyEl = document.getElementById('emptyState');
+            listEl.innerHTML = '';
+
+            if (items.length === 0) {
+                emptyEl.classList.remove('hidden');
+                return;
+            }
+            emptyEl.classList.add('hidden');
+
+            items.forEach(item => {
+                const li = document.createElement('li');
+                li.className = "flex justify-between items-center bg-gray-50 border border-gray-100 p-3 rounded-lg text-sm";
+                li.innerHTML = `
+                    <div>
+                        <span class="font-medium text-gray-800 capitalize">${item.name}</span>
+                        <span class="ml-2 text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">${item.category}</span>
+                    </div>
+                    <div class="text-gray-500 font-semibold text-xs">Qty: ${item.quantity}</div>
+                `;
+                listEl.appendChild(li);
+            });
+        }
+
+        // Fetch list on load
+        fetchList();
+    </script>
+</body>
+</html>
